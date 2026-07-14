@@ -1,99 +1,130 @@
-# Telegram MCP Server
+# Telegram MCP
 
-This is a Model Context Protocol (MCP) server for Telegram.
-
-With this you can search your personal Telegram messages, search your contacts, and send messages to either individuals or groups.
+A Model Context Protocol (MCP) server for Telegram. Search your personal messages, look up contacts, and send messages to individuals or groups — directly from Claude Desktop, Cursor, or any MCP-compatible AI client.
 
 ![Telegram MCP example usage](example-use-2.png)
 
-It connects to your **personal Telegram account** directly via the Telegram API (using the [Telethon](https://github.com/LonamiWebs/Telethon) library). All your messages are stored locally in a SQLite database and only sent to an LLM (such as Claude) when the agent accesses them through tools (which you control).
+It connects to your **personal Telegram account** via the Telegram API (using [Telethon](https://github.com/LonamiWebs/Telethon)). Your message history is stored locally in a SQLite database and is only sent to an LLM when the agent explicitly accesses it through the tools you control.
+
+## Features
+
+- 🔍 **List & search messages** — with filters and surrounding context
+- 👤 **Search contacts** — find people by name or username
+- 💬 **List chats** — see all available chats with metadata
+- 🔗 **Resolve chats** — find a direct chat with a contact, or all chats involving them
+- ⏱️ **Last interaction & message context** — get the latest message with someone, or context around a specific message
+- ✉️ **Send messages** — to a username, group, or chat ID
+- 🔄 **Local sync** — messages are kept up to date in a local SQLite database
+
+## Architecture
+
+The project has two main components:
+
+```
+telegram-bridge/          # Connects to Telegram, handles auth, stores data
+├── api/                  # Telegram API client & models
+├── database/             # SQLAlchemy ORM models & repositories
+├── server/               # FastAPI server exposing bridge functionality
+├── config.py
+├── service.py             # Core service logic
+└── main.py                # Entry point — run this to authenticate & sync
+
+telegram-mcp-server/      # MCP layer exposed to the AI client
+├── main.py                # MCP server entry point
+└── telegram/
+    ├── models.py           # Data classes for messages, chats, contacts
+    ├── database.py         # DB access via SQLAlchemy
+    ├── api.py               # Client for the Telegram Bridge
+    └── display.py            # Formatting for message/chat output
+```
+
+- **telegram-bridge** authenticates with Telegram, keeps the connection alive, syncs messages in near real-time, and persists everything to a local SQLite database (`telegram-bridge/store/`).
+- **telegram-mcp-server** implements the MCP protocol and exposes tools that query the bridge / database and format results for the AI client.
+
+### Data flow
+
+1. Claude sends a tool request to the MCP server
+2. The MCP server queries the Telegram bridge or the SQLite database directly
+3. The bridge keeps the database in sync with the Telegram API
+4. Results flow back through the chain to Claude
+5. When sending a message, the request flows from Claude → MCP server → bridge → Telegram
+
+## Requirements
+
+- Python 3.6+
+- Claude Desktop app (or Cursor)
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.6+
-- Anthropic Claude Desktop app (or Cursor)
-
-### Steps
-
-1. **Clone this repository**
+1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/Muhammad18557/telegram-mcp.git
+   git clone https://github.com/vibecoderkz/telegram-mcp.git
    cd telegram-mcp
    ```
-   Create a Python virtual environment and activate it:
+
+2. **Create and activate a virtual environment**
+
    ```bash
    python3 -m venv myenv
    source myenv/bin/activate
    ```
-   Install dependencies:
+
+3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
-   This is the environment that can be used both for running the **Telegram bridge** and the **MCP server**.
+   This single environment is used for both the bridge and the MCP server.
 
+## Configuration
 
-2. **Get your Telegram API credentials**
+1. **Get your Telegram API credentials**
 
    - Go to https://my.telegram.org/auth
-   - Log in and go to "API development tools"
-   - Create a new application
-   - Note your API ID and API hash
+   - Log in → **API development tools**
+   - Create a new application and note your **API ID** and **API hash**
 
-3. **Run the Telegram bridge**
-
-   Navigate to the telegram-bridge directory:
+2. **Set up the bridge's environment file**
 
    ```bash
    cd telegram-bridge
-   ```
-
-   Set up your API credentials as environment variables either by exporting them:
-
-   ```bash
-   export TELEGRAM_API_ID=your_api_id
-   export TELEGRAM_API_HASH=your_api_hash
-   ```
-
-   Or by creating a `.env` file based on the provided `.env.example`:
-
-   ```bash
    cp .env.example .env
-   nano .env  # or use your preferred text editor
    ```
 
-   Then update the values in the `.env` file:
+   Fill in `.env`:
+
    ```
    TELEGRAM_API_ID=your_api_id
    TELEGRAM_API_HASH=your_api_hash
+   TELEGRAM_PHONE=your_phone_number
    ```
 
-   Run the Python application:
+   (Alternatively, export `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` as environment variables instead of using `.env`.)
+
+## Running the bridge
+
+From `telegram-bridge/`:
+
+```bash
+python main.py
+```
+
+On first run you'll be prompted for your phone number and the verification code sent to Telegram (and your 2FA password, if enabled). After that, your session is cached locally and reused.
+
+## Connecting the MCP server
+
+1. Update `run_telegram_server.sh` with your absolute repo path:
 
    ```bash
-   python main.py
-   ```
-
-   The first time you run it, you will be prompted to enter your phone number and the verification code sent to your Telegram account.
-
-4. **Connect to the MCP server**
-
-   First, update the `run_telegram_server.sh` script with your absolute repository path:
-   
-   ```bash
-   # Open the script in your preferred editor
    nano run_telegram_server.sh
-   
-   # Update line 4 with your absolute path to the repository
-   # Change this:
-   BASE_DIR="/Users/muhammadabdullah/Desktop/mcp/telegram-mcp"
-   # To your actual BASE_DIR path (get it by running `pwd` in the telegram-mcp directory)
+   # Change:
+   BASE_DIR="/path/to/telegram-mcp"
+   # To your actual path — get it with `pwd` from the repo root
    ```
 
-   Then, configure the MCP server by creating a JSON configuration file with the following format. Use the `BASE_DIR` from above.
+2. Add the server to your MCP client config, using the same `BASE_DIR`:
 
    ```json
    {
@@ -108,94 +139,56 @@ It connects to your **personal Telegram account** directly via the Telegram API 
    }
    ```
 
-   For **Claude**, save this as `claude_desktop_config.json` in your Claude Desktop configuration directory at:
+   - **Claude Desktop** — save as `claude_desktop_config.json` in:
+     `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Cursor** — save as `mcp.json` in:
+     `~/.cursor/mcp.json`
 
-   ```
-   ~/Library/Application\ Support/Claude/claude_desktop_config.json
-   ```
+3. **Restart** Claude Desktop or Cursor. Telegram should now appear as an available integration.
 
-   For **Cursor**, save this as `mcp.json` in your Cursor configuration directory at:
+## MCP Tools
 
-   ```
-   ~/.cursor/mcp.json
-   ```
-
-5. **Restart Claude Desktop / Cursor**
-
-   Open Claude Desktop and you should now see Telegram as an available integration.
-
-   Or restart Cursor.
-
-## Architecture Overview
-
-This application consists of two main components:
-
-1. **Python Telegram Bridge** (`telegram-bridge/`): A Python application that connects to Telegram's API, handles authentication, and stores message history in SQLite. It serves as the bridge between Telegram and the MCP server. Can real-time sync for latest messages. The bridge uses a modular architecture with:
-   - `api/`: Client and models for the Telegram API interface
-   - `database/`: SQLAlchemy ORM models and repositories for data access
-   - `server/`: FastAPI server for exposing bridge functionality
-   - `service.py`: Core service logic connecting components
-
-2. **Python MCP Server** (`telegram-mcp-server/`): A Python server implementing the Model Context Protocol (MCP), which provides standardized tools for Claude to interact with Telegram data and send/receive messages. The MCP server now follows a modular package structure:
-   - `telegram/models.py`: Data classes for messages, chats, and contacts 
-   - `telegram/database.py`: Database operations using SQLAlchemy ORM
-   - `telegram/api.py`: API client for Telegram Bridge
-   - `telegram/display.py`: Formatting for message and chat output
-
-### Data Storage
-
-- All message history is stored in a SQLite database within the `telegram-bridge/store/` directory
-- The database maintains tables for chats and messages managed through SQLAlchemy ORM
-- Messages are indexed for efficient searching and retrieval
-- All database access is through SQLAlchemy for type safety and query building
-
-## Usage
-
-Once connected, you can interact with your Telegram contacts through Claude, leveraging Claude's AI capabilities in your Telegram conversations.
-
-### MCP Tools
-
-Claude can access the following tools to interact with Telegram:
-
-- **search_contacts**: Search for contacts by name or username
-- **list_messages**: Retrieve messages with optional filters and context
-- **list_chats**: List available chats with metadata
-- **get_chat**: Get information about a specific chat
-- **get_direct_chat_by_contact**: Find a direct chat with a specific contact
-- **get_contact_chats**: List all chats involving a specific contact
-- **get_last_interaction**: Get the most recent message with a contact
-- **get_message_context**: Retrieve context around a specific message
-- **send_message**: Send a Telegram message to a specified username or chat ID
-
-## Technical Details
-
-1. Claude sends requests to the Python MCP server
-2. The MCP server queries the Telegram bridge or directly the SQLite database
-3. The bridge accesses the Telegram API and keeps the SQLite database up to date
-4. Data flows back through the chain to Claude
-5. When sending messages, the request flows from Claude through the MCP server to the Telegram bridge and to Telegram
+| Tool | Description |
+|---|---|
+| `search_contacts` | Search contacts by name or username |
+| `list_messages` | Retrieve messages with optional filters and context |
+| `list_chats` | List available chats with metadata |
+| `get_chat` | Get information about a specific chat |
+| `get_direct_chat_by_contact` | Find a direct chat with a specific contact |
+| `get_contact_chats` | List all chats involving a specific contact |
+| `get_last_interaction` | Get the most recent message with a contact |
+| `get_message_context` | Retrieve context around a specific message |
+| `send_message` | Send a message to a username or chat ID |
 
 ## Troubleshooting
 
-- Make sure both the Telegram bridge and the Python server are running for the integration to work properly.
+Make sure **both** the Telegram bridge and the MCP server are running.
 
-### Authentication Issues
+**Session expired** — delete `telegram-bridge/store/telegram_session.session` and restart the bridge to re-authenticate.
 
-- **Session expired**: If your session expires, you might need to re-authenticate. Delete the `telegram-bridge/store/telegram_session.session` file and restart the bridge.
-- **Two-factor authentication**: If you have 2FA enabled on your Telegram account, you'll be prompted for your password during authentication.
-- **No Messages Loading**: After initial authentication, it can take several minutes for your message history to load, especially if you have many chats.
+**Two-factor authentication** — you'll be prompted for your password during auth if 2FA is enabled.
 
-For additional Claude Desktop integration troubleshooting, see the [MCP documentation](https://modelcontextprotocol.io/quickstart/server#claude-for-desktop-integration-issues).
+**No messages loading** — after first authentication, syncing full history can take several minutes for accounts with many chats.
 
-## Next Steps
+For Claude Desktop integration issues, see the [MCP documentation](https://modelcontextprotocol.io/quickstart/server#claude-for-desktop-integration-issues).
 
-This project is actively being developed. Future planned features include:
+## Roadmap
 
-- **Rich Media Support**: Handle and display photos, videos, and other media types
-- **Message Threading**: Better visualization of conversation threads
-- **Message Editing**: Support for editing sent messages
-- **Web UI**: A simple web interface for configuration and monitoring
-- **Expanded Search**: More advanced search capabilities for finding specific messages or running analysis on say unread chats
-- **Improved Security**: Enhanced authentication and encryption for local data
+- 🖼️ Rich media support (photos, videos, other media types)
+- 🧵 Better message threading / conversation visualization
+- ✏️ Message editing support
+- 🌐 Simple web UI for configuration and monitoring
+- 🔎 Expanded search (e.g. analysis over unread chats)
+- 🔒 Improved security — stronger auth & encryption for local data
 
-If you'd like to contribute to any of these features or suggest new ones, please check out our [CONTRIBUTING.md](CONTRIBUTING.md) guide.
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines before opening a PR.
+
+## Security & Privacy
+
+This tool operates directly on your personal Telegram account and data. Your session credentials and message data are stored locally — review `telegram-bridge/database` and `.env` handling before deploying anywhere beyond your own machine. Never commit your `.env` file or session files.
+
+## License
+
+See repository license terms.
