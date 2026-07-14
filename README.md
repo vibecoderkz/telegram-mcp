@@ -1,5 +1,7 @@
 # Telegram MCP
 
+_Last updated: 2026-07-14_
+
 A Model Context Protocol (MCP) server for Telegram. Search your personal messages, look up contacts, and send messages to individuals or groups — directly from Claude Desktop, Cursor, or any MCP-compatible AI client.
 
 ![Telegram MCP example usage](example-use-2.png)
